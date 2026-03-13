@@ -1,7 +1,7 @@
 ---
 title: "Stat 405 -Project Proposal"
 output: html_document
-author: "Isobel Adams & Danial Teejay"
+author: "Isobel Adams & Danial Tajabadipour"
 ---
 
 ```{r setup, include=FALSE}
