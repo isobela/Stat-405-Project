@@ -9,8 +9,8 @@
 <meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
 
 
+<meta name="author" content="Isobel Adams &amp; Danial Teejay" />
 
-<meta name="date" content="2026-03-12" />
 
 <title>Stat 405 -Project Proposal</title>
 
@@ -350,12 +350,120 @@ display: none;
 
 
 <h1 class="title toc-ignore">Stat 405 -Project Proposal</h1>
-<h4 class="date">2026-03-12</h4>
+<h4 class="author">Isobel Adams &amp; Danial Teejay</h4>
 
 </div>
 
 
-
+<p>Public Github Repo: <a href="https://github.com/isobela/Stat-405-Project-Proposal" class="uri">https://github.com/isobela/Stat-405-Project-Proposal</a></p>
+<p>To ensure both team members contribute roughly equally, we plan to
+divide the work into data preparation / exploratory analysis and
+Bayesian modeling / posterior computation, with both members
+contributing to the final report writing, interpretation, and code
+review.</p>
+<div id="data" class="section level2">
+<h2>Data</h2>
+<p>The Vancouver Police Department has been counting crime counts for
+specific neighborhoods, the publically availble crime data is presented
+in an pdf found at:
+<code>https://vpd.ca/wp-content/uploads/2026/01/neighbourhood-stats-year-end-2025.pdf</code></p>
+<p>The dataset contains reported counts of several crime categories
+across Vancouver neighbourhoods, including sex offences, assaults,
+robbery, break and enter, theft of motor vehicle, theft from auto, theft
+under $5000, arson, mischief, and offensive weapons.</p>
+<p>Because the data are published in PDF format rather than as a
+directly downloadable CSV, we manually entered the table into an R
+dataframe.</p>
+<p>As a backup dataset, we plan to use another year of the Vancouver
+Police Department neighbourhood crime statistics, so that the theme and
+data structure remain comparable.</p>
+<p>Backup dataset: <a href="https://vpd.ca/wp-content/uploads/2025/01/neighbourhood-year-end-2024.pdf" class="uri">https://vpd.ca/wp-content/uploads/2025/01/neighbourhood-year-end-2024.pdf</a></p>
+<pre class="r"><code>crime_data &lt;- data.frame(
+  neighbourhood = c(
+    &quot;Arbutus Ridge&quot;,&quot;Central Business District&quot;,&quot;Dunbar-Southlands&quot;,&quot;Fairview&quot;,
+    &quot;Grandview-Woodland&quot;,&quot;Hastings-Sunrise&quot;,&quot;Kensington-Cedar Cottage&quot;,
+    &quot;Kerrisdale&quot;,&quot;Killarney&quot;,&quot;Kitsilano&quot;,&quot;Marpole&quot;,&quot;Mount Pleasant&quot;,&quot;Musqueam&quot;,
+    &quot;Oakridge&quot;,&quot;Renfrew-Collingwood&quot;,&quot;Riley Park&quot;,&quot;Shaughnessy&quot;,&quot;South Cambie&quot;,
+    &quot;Stanley Park&quot;,&quot;Strathcona&quot;,&quot;Sunset&quot;,&quot;Victoria-Fraserview&quot;,&quot;West End&quot;,
+    &quot;West Point Grey&quot;),
+  sex_offences = c( 0,151,8,16,27,29,34,6,14,12,8,24,2,8,30,12,0,13,1,43,24,15,43,4),
+  assaults = c(18,1591,22,115,254,97,185,22,51,101,69,215,15,26,168,41,15,24,18,622,80,45,306,24),
+  robbery = c( 1,218,0,9,22,7,26,3,3,10,4,36,0,0,22,3,2,2,4,64,9,9,35,2),
+  break_enter = c(25,438,24,164,121,84,127,29,37,92,89,173,0,44,123,75,32,33,12,151,77,29,149,29),
+  theft_mv = c(7,74,7,16,64,31,48,10,24,18,22,28,0,7,53,13,6,6,2,48,36,24,23,5),
+  theft_auto = c(41,1855,72,219,219,222,317,73,84,202,146,220,0,56,202,148,43,56,54,369,148,136,443,60),
+  theft_under_5k = c(69,4458,70,706,507,312,601,132,159,465,276,1015,1,115,1446,178,38,140,53,603,637,125,1120,77),
+  arson = c(1,68,1,6,15,9,8,0,1,9,1,20,0,0,8,5,0,2,2,37,4,3,10,0),
+  mischief = c(34,1864,33,209,281,140,209,45,83,142,134,296,6,29,171,86,28,42,16,434,137,85,318,32),
+  offensive_weapons = c(4,708,4,28,44,9,25,5,5,10,8,39,0,1,9,2,3,4,4,244,9,10,38,3))</code></pre>
+<pre class="r"><code>head(crime_data)</code></pre>
+<pre><code>##               neighbourhood sex_offences assaults robbery break_enter theft_mv
+## 1             Arbutus Ridge            0       18       1          25        7
+## 2 Central Business District          151     1591     218         438       74
+## 3         Dunbar-Southlands            8       22       0          24        7
+## 4                  Fairview           16      115       9         164       16
+## 5        Grandview-Woodland           27      254      22         121       64
+## 6          Hastings-Sunrise           29       97       7          84       31
+##   theft_auto theft_under_5k arson mischief offensive_weapons
+## 1         41             69     1       34                 4
+## 2       1855           4458    68     1864               708
+## 3         72             70     1       33                 4
+## 4        219            706     6      209                28
+## 5        219            507    15      281                44
+## 6        222            312     9      140                 9</code></pre>
+</div>
+<div id="bayesian-questions" class="section level2">
+<h2>Bayesian Questions</h2>
+<p>Using the <code>crime_data</code> we hope to answer the following
+Bayesian questions:</p>
+<ul>
+<li>What are the underlying rates of different categories of crime
+across Vancouver neighbourhoods?</li>
+<li>What future crime counts might be predicted for selected
+neighbourhood and crime-type combinations?</li>
+</ul>
+</div>
+<div id="methodolgy-plan" class="section level2">
+<h2>Methodolgy / Plan</h2>
+<p>Since we are working with count data we will assume crime counts
+<span class="math inline">\(y_{ij}\)</span> to be i.i.d for each crime
+type and neighbourhood. We hope to find true crime rate for each type of
+crime and neighborhood.</p>
+<p>We will use two models</p>
+<p><strong>Model 1</strong>: Simpler model</p>
+<p>As a first model we will treat each neighbourhood-crime combination
+independently:</p>
+<p><span class="math display">\[
+y_{ij} | \lambda_{ij} \sim \text{Poisson}(\lambda_{ij})\\
+\lambda_{ij} \sim \text{Gamma}(\alpha, \beta)
+\]</span> where <span class="math inline">\(y_{ij}\)</span> represents
+the crime count in neighborhood <span class="math inline">\(i\)</span>
+for crime type <span class="math inline">\(j\)</span>. The Gamma prior
+is conjugate to the Poisson likelihood hence it is an reasonable choice
+for prior. However we may choose to change this when we continue with
+exploratory data analysis.</p>
+<p><strong>Model 2</strong>: Hierarchical Model</p>
+<p>As a less naive model we will incorporate neighbourhood and
+crime-type effects, this will also make the model less sensitive to
+prior choice. <span class="math inline">\(\lambda_{ij}\)</span> must be
+positive hence a possible model could be</p>
+<p><span class="math display">\[
+y_{ij} | \lambda_{ij} \sim \text{Poisson}(\lambda_{ij})\\
+\log(\lambda_{ij}) = \mu + \alpha_i + \beta_j \\
+\alpha \sim  \space ?? \\
+\beta \sim  \space ??
+\]</span> where <span class="math inline">\(\mu\)</span> is an overall
+intercept, <span class="math inline">\(\alpha\)</span> is effect of
+neighborhood <span class="math inline">\(i\)</span> and <span class="math inline">\(\beta\)</span> is effect of crime type <span class="math inline">\(j\)</span>. We will place reasonable priors on
+<span class="math inline">\(\alpha\)</span> and <span class="math inline">\(\beta\)</span>.</p>
+<p>The project requires two different techniques of posterior
+computation, we plan to use the following computational methods:</p>
+<ol style="list-style-type: decimal">
+<li>SNIS</li>
+<li>MCMC</li>
+</ol>
+<p>Using techniques from course to compare these two approaches.</p>
+</div>
 
 
 
