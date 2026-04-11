@@ -1,0 +1,13 @@
+---
+title: "STAT 405 - Project Report"
+author: "Isobel Adams & Danial Tajabadipour"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Project Report
