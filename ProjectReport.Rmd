@@ -12,17 +12,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Data
 
-The Vancouver Police Department has been counting crime counts for specific neighborhoods, the publically availble crime data is presented in an pdf found at: 
+We use publicly available crime data from the Vancouver Police Department, containing yearly counts of multiple crime categories across neighbourhoods in Vancouver.
 
-`https://vpd.ca/wp-content/uploads/2026/01/neighbourhood-stats-year-end-2025.pdf`
-
-The dataset contains reported counts of several crime categories across Vancouver neighbourhoods, including sex offences, assaults, robbery, break and enter, theft of motor vehicle, theft from auto, theft under $5000, arson, mischief, and offensive weapons.
-
-Because the data are published in PDF format rather than as a directly downloadable CSV, we manually entered the table into an R dataframe.
-
-In our analysis we hope to use Bayesian analysis to quantify crime rates for different types of crimes, and whether we can predict future crime counts for selected neighbourhoods and crime types. 
-
-The motivation behind our study is to hopefully find ways in which crime can be prevented, for instance if we find that crime rates are higher in a specific neighbourhood then crime rates could be decreased by enforcing stricter policing in that area.
+Since the data were provided in PDF format, we manually constructed a dataset in R. Each observation $y_{ij}$ represents the count of crime type $j$ in neighbourhood $i$.
 
 ```{r}
 crime_data <- data.frame(
@@ -56,25 +48,17 @@ head(crime_data)
 
 ## Models
 
-Since the data are counts, we model $y_{ij}$ using Poisson distributions to estimate underlying crime intensity.
+## Models
 
-We consider two models.
+We model crime counts $y_{ij}$ using Poisson distributions.
 
-**Model 1:** Simpler model
-
-We treat each neighbourhood-crime combination independently:
-
+**Model 1 (Independent model):**
 $$
 y_{ij} \mid \lambda_{ij} \sim \text{Poisson}(\lambda_{ij}), \quad
 \lambda_{ij} \sim \text{Gamma}(\alpha, \beta)
 $$
 
-The Gamma prior is conjugate to the Poisson likelihood, allowing straightforward posterior computation.
-
-**Model 2:** Hierarchical model
-
-We incorporate neighbourhood and crime-type effects:
-
+**Model 2 (Hierarchical model):**
 $$
 y_{ij} \mid \lambda_{ij} \sim \text{Poisson}(\lambda_{ij}), \quad
 \log(\lambda_{ij}) = \mu + \alpha_i + \beta_j
@@ -85,14 +69,139 @@ $$
 \beta_j \sim \mathcal{N}(0, \sigma_\beta^2)
 $$
 
-where $\mu$ is an overall intercept, $\alpha_i$ is the neighbourhood effect, and $\beta_j$ is the crime-type effect.
-
-We use Gaussian priors for $\alpha_i$ and $\beta_j$, reflecting that most effects are near zero unless supported by the data. The variance parameters $\sigma_\alpha^2$ and $\sigma_\beta^2$ control variability across groups.
-
-To ensure identifiability, we impose
-$$
-\sum_i \alpha_i = 0, \qquad \sum_j \beta_j = 0.
-$$
+We impose $\sum_i \alpha_i = 0$ and $\sum_j \beta_j = 0$ for identifiability.
 
 We interpret $\lambda_{ij}$ as the expected number of crimes per year for crime type $j$ in neighbourhood $i$, representing a yearly rate without explicit adjustment for exposure or opportunity.
+
+## Questions 
+Using the `crime_data` and specified models above we hope to answer the following questions using bayesian analysis:
+ 
+* What are the underlying rates of different categories of crime across Vancouver neighbourhoods?
+* What future crime counts might be predicted for selected neighbourhood and crime-type combinations?
+
+## Posterior Laplace Approximation
+
+For Model 1, the posterior distribution can be computed exactly because the Gamma prior is conjugate to the Poisson likelihood. 
+
+```{r}
+alpha <- 1
+beta <- 1
+Y <- as.matrix(crime_data[, -1])
+post_shape <- alpha + Y
+post_rate  <- beta + 1
+post_mean <- post_shape / post_rate
+post_var  <- post_shape / (post_rate^2)
+
+# 95% credible intervals
+post_lower <- qgamma(0.025, shape = post_shape, rate = post_rate)
+post_upper <- qgamma(0.975, shape = post_shape, rate = post_rate)
+model1_results <- data.frame(
+  neighbourhood = rep(crime_data$neighbourhood, times = ncol(Y)),
+  crime_type = rep(colnames(Y), each = nrow(Y)),
+  observed_count = as.vector(Y),
+  post_shape = as.vector(post_shape),
+  post_rate = as.vector(post_rate),
+  posterior_mean = as.vector(post_mean),
+  posterior_variance = as.vector(post_var),
+  ci_lower = as.vector(post_lower),
+  ci_upper = as.vector(post_upper)
+)
+
+```
+
+
+In contrast, for Model 2 the posterior does not have a closed-form expression, since the log-linear hierarchical structure introduces dependence through the neighbourhood and crime-type effects. Therefore, we use a Laplace approximation to obtain an approximate posterior distribution.
+
+
+
+```{r}
+Y <- as.matrix(crime_data[, -1])
+rownames(Y) <- crime_data$neighbourhood
+I <- nrow(Y)
+J <- ncol(Y)
+# par = (mu, alpha_1,...,alpha_{I-1}, beta_1,...,beta_{J-1})
+log_posterior <- function(par, Y, sigma_alpha = 1, sigma_beta = 1) {
+  mu <- par[1]
+  alpha_free <- par[2:I]
+  beta_free  <- par[(I + 1):(I + J - 1)]
+  alpha <- c(alpha_free, -sum(alpha_free))
+  beta  <- c(beta_free,  -sum(beta_free))
+  eta <- outer(alpha, beta, "+") + mu
+  loglik <- sum(Y * eta - exp(eta))
+  logprior <- -sum(alpha^2) / (2 * sigma_alpha^2) - sum(beta^2)  / (2 * sigma_beta^2)
+  loglik + logprior
+}
+```
+
+```{r}
+p <- 1 + (I - 1) + (J - 1)
+init <- rep(0, p)
+opt <- optim(par = init,
+  fn = log_posterior,
+  Y = Y,
+  sigma_alpha = 1,
+  sigma_beta = 1,
+  method = "BFGS",
+  control = list(fnscale = -1, maxit = 50000, reltol = 1e-10),
+  hessian = TRUE)
+theta_hat <- opt$par
+H_hat <- opt$hessian
+Sigma_hat <- solve(-H_hat)
+se_hat <- sqrt(diag(Sigma_hat))
+
+```
+
+
+We compute the MAP estimate $\hat{\theta}$ using \texttt{optim()} and approximate the posterior as
+$$
+\theta \mid y \approx \mathcal{N}\!\left(\hat{\theta},\,(-H(\hat{\theta}))^{-1}\right),
+$$
+where $H(\hat{\theta})$ is the Hessian of the log-posterior.
+
+A plot of posterior calculated is produced by code below.
+
+```{r}
+# posterior plot for mu under Laplace approximation
+mu_hat <- theta_hat[1]
+mu_se  <- se_hat[1]
+
+curve(
+  dnorm(x, mean = mu_hat, sd = mu_se),
+  from = mu_hat - 4 * mu_se,
+  to   = mu_hat + 4 * mu_se,
+  xlab = expression(mu),
+  ylab = "Approximate posterior density",
+  main = "Laplace Approximation for Posterior of mu"
+)
+abline(v = mu_hat, lty = 2)
+```
+
+The Laplace approximation is most accurate when the posterior is approximately Gaussian near its mode.
+
+## Posterior Results and Interpretation
+
+We now compare the posterior results from Model 1 and Model 2 in order to answer our research questions.
+
+Under Model 1, each $(i,j)$ pair is treated independently, and the posterior distributions for $\lambda_{ij}$ are available in closed form. The posterior means vary widely across neighbourhoods and crime types, reflecting the observed counts. For example, low-count categories (e.g., $y_{ij} = 0$) produce small but nonzero posterior means due to the influence of the prior, while high-count areas such as the Central Business District yield large posterior estimates. However, because Model 1 does not share information across groups, these estimates can be highly variable, particularly for rare events.
+
+In Model 2, we introduce a hierarchical structure
+$$
+\log(\lambda_{ij}) = \mu + \alpha_i + \beta_j,
+$$
+and approximate the posterior using a Laplace approximation. The parameter $\mu$ represents the overall average log-crime intensity across all neighbourhoods and crime types. From our results, we obtain $\hat{\mu} \approx 3.47$, corresponding to an average crime rate of
+$$
+\exp(3.47) \approx 32
+$$
+incidents per year. This can be interpreted as a baseline level of crime, with $\alpha_i$ and $\beta_j$ capturing deviations for specific neighbourhoods and crime categories.
+
+Unlike Model 1, Model 2 allows for partial pooling, meaning that estimates are shrunk toward this overall mean. As a result, extreme values are moderated, and estimates for low-count categories become more stable. This produces more reliable estimates of the underlying crime rates across Vancouver.
+
+To answer our first question, we find that crime rates differ substantially across both neighbourhoods and crime types. High-density areas such as the Central Business District exhibit consistently higher rates across multiple categories, while quieter neighbourhoods show lower overall rates. Model 2 provides a clearer picture of these differences by separating overall trends ($\mu$) from neighbourhood and crime-specific effects.
+
+To answer our second question, we use the posterior distributions to predict future crime counts. Under both models, the expected future count for a given $(i,j)$ is approximately equal to the posterior mean of $\lambda_{ij}$. This implies that areas with historically high crime counts are expected to remain high, while areas with low counts remain low, though with greater uncertainty. Model 2 improves these predictions by incorporating shared structure, leading to more stable and realistic forecasts, particularly in cases with limited data.
+
+Overall, Model 1 provides a simple baseline with exact posterior computation, while Model 2 offers a more flexible and interpretable framework that captures shared patterns across neighbourhoods and crime types. The Laplace approximation allows us to efficiently perform inference in this more complex model while still obtaining meaningful insights about crime patterns and future risk.
+
+
+
 
