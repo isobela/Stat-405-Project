@@ -4,10 +4,13 @@ author: "Isobel Adams & Danial Tajabadipour"
 output:
   pdf_document: default
   html_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(cmdstanr)
+library(ggplot2)
 ```
 
 ## Data
@@ -45,8 +48,15 @@ crime_data <- data.frame(
 ```{r}
 head(crime_data)
 ```
+## Literature Review
 
-## Models
+Bayesian methods are widely used for modeling count data, particularly through Poisson likelihoods with conjugate Gamma priors, which provide a natural framework for estimating underlying rates while accounting for uncertainty \cite{gelman2013bayesian}.
+
+Hierarchical Bayesian models extend this approach by introducing shared structure across groups, allowing for partial pooling of information. This has been shown to produce more stable and reliable estimates, especially in settings with sparse or highly variable data \cite{gelman2013bayesian}.
+
+Such approaches have also been applied in crime data analysis, where counts of incidents are modeled across regions or categories to identify underlying patterns while reducing sensitivity to noise in low-count areas.
+
+In contrast to existing work, our analysis focuses on Vancouver neighbourhood-level crime data and compares two posterior inference methods, Laplace approximation and Hamiltonian Monte Carlo, to evaluate their effectiveness in this setting.Similar hierarchical Poisson models are commonly used in modeling grouped or spatial count data.
 
 ## Models
 
@@ -72,6 +82,12 @@ $$
 We impose $\sum_i \alpha_i = 0$ and $\sum_j \beta_j = 0$ for identifiability.
 
 We interpret $\lambda_{ij}$ as the expected number of crimes per year for crime type $j$ in neighbourhood $i$, representing a yearly rate without explicit adjustment for exposure or opportunity.
+
+The Poisson distribution is used since the data consist of non-negative integer counts of crimes. This makes it a natural choice for modeling the variability in the number of incidents.
+
+We model $\log(\lambda_{ij}) = \mu + \alpha_i + \beta_j$ so that $\lambda_{ij}$ remains positive, since crime rates cannot be negative. The log transformation also allows the effects of neighbourhoods and crime types to combine additively in a simple and interpretable way.
+
+We place normal priors on $\alpha_i$ and $\beta_j$ since these effects can reasonably take both positive and negative values, representing increases or decreases relative to the overall mean. These priors also introduce regularization and allow for partial pooling, which stabilizes estimates across neighbourhoods and crime types.
 
 ## Questions 
 Using the `crime_data` and specified models above we hope to answer the following questions using bayesian analysis:
@@ -203,5 +219,138 @@ To answer our second question, we use the posterior distributions to predict fut
 Overall, Model 1 provides a simple baseline with exact posterior computation, while Model 2 offers a more flexible and interpretable framework that captures shared patterns across neighbourhoods and crime types. The Laplace approximation allows us to efficiently perform inference in this more complex model while still obtaining meaningful insights about crime patterns and future risk.
 
 
+## Posterior Inference using HMC
+
+We also perform posterior inference using Hamiltonian Monte Carlo (HMC), implemented via Stan. HMC is a Markov Chain Monte Carlo method that uses gradient information of the log-posterior to propose efficient transitions, allowing for better exploration of high-dimensional parameter spaces compared to standard random-walk methods.We use the No-U-Turn Sampler (NUTS), an adaptive variant of HMC, to obtain posterior samples.The HMC samples appear to be well-behaved, with no visible issues in the posterior distribution, suggesting that the estimates are reliable.
+
+```{r HMC-fit, message=FALSE, warning=FALSE, results='hide'}
+stan_code <- "
+data {
+  int<lower=1> I;
+  int<lower=1> J;
+  array[I,J] int<lower=0> y;
+}
+parameters {
+  real mu;
+  vector[I] alpha_raw;
+  vector[J] beta_raw;
+  real<lower=0> sigma_alpha;
+  real<lower=0> sigma_beta;
+}
+transformed parameters {
+  vector[I] alpha = sigma_alpha * alpha_raw;
+  vector[J] beta = sigma_beta * beta_raw;
+}
+model {
+  mu ~ normal(0,5);
+  alpha_raw ~ normal(0,1);
+  beta_raw ~ normal(0,1);
+  sigma_alpha ~ normal(0,2);
+  sigma_beta ~ normal(0,2);
+
+  for(i in 1:I)
+    for(j in 1:J)
+      y[i,j] ~ poisson_log(mu + alpha[i] + beta[j]);
+}
+generated quantities {
+  matrix[I,J] lambda;
+  for(i in 1:I)
+    for(j in 1:J)
+      lambda[i,j] = exp(mu + alpha[i] + beta[j]);
+}
+"
+
+writeLines(stan_code, "model_hmc.stan")
+mod <- cmdstan_model("model_hmc.stan")
+
+fit_hmc <- mod$sample(
+  data = list(
+    I = I,
+    J = J,
+    y = Y
+  ),
+  chains = 4,
+  iter_warmup = 1000,
+  iter_sampling = 1000,
+  seed = 405
+)
+draws <- fit_hmc$draws("lambda", format = "matrix")
+
+lambda_mean_hmc <- apply(draws, 2, mean)
+lambda_lower_hmc <- apply(draws, 2, quantile, 0.025)
+lambda_upper_hmc <- apply(draws, 2, quantile, 0.975)
+```
+
+```{r HMC-results}
+hmc_results <- data.frame(
+  mean = lambda_mean_hmc,
+  lower = lambda_lower_hmc,
+  upper = lambda_upper_hmc
+)
+
+head(hmc_results)
+```
+
+```{r HMC-plot}
+df_hmc <- data.frame(
+  observed = as.vector(Y),
+  predicted = lambda_mean_hmc
+)
+
+ggplot(df_hmc, aes(x = observed, y = predicted)) +
+  geom_point(alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2) +
+  labs(
+    title = "HMC Posterior Means vs Observed Counts",
+    x = "Observed",
+    y = "HMC Posterior Mean"
+  )
+```
+
+```{r}
+mu_draws <- fit_hmc$draws("mu", format = "matrix")
+
+hist(mu_draws,
+     breaks = 30,
+     main = "Posterior of mu (HMC)",
+     xlab = "mu")
+```
+
+The HMC posterior for $\mu$ is approximately symmetric and centered around $3.4$--$3.5$, which closely matches the Laplace approximation. This indicates that the posterior distribution is well-behaved and that the Gaussian approximation used in the Laplace method is reasonable in this setting.
+
+Using the HMC samples, we obtain posterior estimates of $\lambda_{ij}$ that reflect the underlying crime patterns across neighbourhoods and crime types. In particular, higher predicted values are observed in dense areas such as the Central Business District, while lower values are seen in quieter neighbourhoods, confirming that crime rates vary substantially across both dimensions.
+
+Compared to Model 1, which treats each $(i,j)$ independently, the hierarchical model estimated via HMC produces more stable and moderated estimates due to partial pooling. This reduces variability for low-count categories and prevents extreme estimates driven by sparse data.
+
+The posterior predictive means also align closely with the observed counts, as seen in the scatter plot, indicating that the hierarchical model provides a good fit to the data.
+
+To answer our research questions, the HMC results show that underlying crime rates differ significantly across neighbourhoods and categories, and that future crime counts can be predicted using the posterior mean of $\lambda_{ij}$. These predictions suggest that areas with historically high crime counts are expected to remain relatively high, while low-count areas remain lower, with uncertainty captured by the posterior distribution.
+
+Overall, both inference methods produce consistent results, with HMC confirming the validity of the Laplace approximation while providing a more flexible inference approach. At the same time, the hierarchical model offers clear advantages over the independent model by incorporating shared structure across neighbourhoods and crime types.
+
+\subsection{Discussion and Limitations}
+
+In this project, we modeled crime counts across Vancouver neighbourhoods and crime categories using both an independent Poisson-Gamma model and a hierarchical Poisson model. The hierarchical model was more useful overall, as it allows information to be shared across neighbourhoods and crime types, leading to more stable estimates compared to treating each observation independently.
+
+For posterior inference, we used both the Laplace approximation and Hamiltonian Monte Carlo (HMC). The posterior summaries from both methods were very similar, particularly for the parameter $\mu$, suggesting that the Laplace approximation captures the main features of the posterior distribution in this setting. However, HMC remains more reliable in general, as it samples from the full posterior without relying on a Gaussian approximation.
+
+One important limitation is how we defined $\lambda_{ij}$. In our setup, it represents the expected number of reported crimes per year, since we only have yearly aggregated data. This means we do not adjust for population or other measures of exposure, so comparisons across neighbourhoods reflect total crime volume rather than per-capita risk. As a result, areas with larger populations or higher activity levels may naturally have higher counts, which the model does not explicitly account for.
+
+Another limitation is that the data only include reported crimes. The true crime rates may differ due to underreporting or variation in reporting behaviour across neighbourhoods, which could introduce bias into our estimates.
+
+Finally, the Laplace approximation depends on the assumption that the posterior is approximately Gaussian around the mode. While this assumption appears reasonable in our case, it may not hold in more complex models or datasets. In such cases, sampling-based methods like HMC would be more appropriate.
+
+Overall, the hierarchical model combined with Bayesian inference provides a flexible and interpretable framework for understanding crime patterns and making predictions, despite the limitations in the available data.
 
 
+
+
+
+
+\begin{thebibliography}{9}
+
+\bibitem{gelman2013bayesian}
+Gelman, A., Carlin, J., Stern, H., Dunson, D., Vehtari, A., \& Rubin, D. (2013).
+\textit{Bayesian Data Analysis} (3rd ed.). CRC Press.
+
+\end{thebibliography}
