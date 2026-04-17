@@ -8,7 +8,15 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+  echo = FALSE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  fig.width = 5.5,
+  fig.height = 3.5,
+  out.width = "80%"
+)
 library(cmdstanr)
 library(ggplot2)
 ```
@@ -19,7 +27,10 @@ We use publicly available crime data from the Vancouver Police Department, conta
 
 Since the data were provided in PDF format, we manually constructed a dataset in R. Each observation $y_{ij}$ represents the count of crime type $j$ in neighbourhood $i$.
 
-```{r}
+Data was ceated as an R data frame object see Appendix A
+
+```{r, echo=FALSE}
+
 crime_data <- data.frame(
   neighbourhood = c(
     "Arbutus Ridge","Central Business District","Dunbar-Southlands","Fairview",
@@ -48,6 +59,7 @@ crime_data <- data.frame(
 ```{r}
 head(crime_data)
 ```
+
 ## Literature Review
 
 Bayesian methods are widely used for modeling count data, particularly through Poisson likelihoods with conjugate Gamma priors, which provide a natural framework for estimating underlying rates while accounting for uncertainty \cite{gelman2013bayesian}.
@@ -97,9 +109,9 @@ Using the `crime_data` and specified models above we hope to answer the followin
 
 ## Posterior Laplace Approximation
 
-For Model 1, the posterior distribution can be computed exactly because the Gamma prior is conjugate to the Poisson likelihood. 
+For Model 1, the posterior distribution can be computed exactly because the Gamma prior is conjugate to the Poisson likelihood. Posterior summaries were computed analytically (see Appendix B).
 
-```{r}
+```{r, echo=FALSE}
 alpha <- 1
 beta <- 1
 Y <- as.matrix(crime_data[, -1])
@@ -122,15 +134,22 @@ model1_results <- data.frame(
   ci_lower = as.vector(post_lower),
   ci_upper = as.vector(post_upper)
 )
-
 ```
 
-
-In contrast, for Model 2 the posterior does not have a closed-form expression, since the log-linear hierarchical structure introduces dependence through the neighbourhood and crime-type effects. Therefore, we use a Laplace approximation to obtain an approximate posterior distribution.
-
-
-
 ```{r}
+head(model1_results)
+```
+
+In contrast, for Model 2 the posterior does not have a closed-form expression due to the hierarchical log-linear structure. Therefore, we use a Laplace approximation to obtain an approximate posterior distribution.
+
+We compute the MAP estimate $\hat{\theta}$ numerically and approximate the posterior as
+
+$$
+\theta \mid y \approx \mathcal{N}\!\left(\hat{\theta},\,(-H(\hat{\theta}))^{-1}\right),
+$$
+
+where $H(\hat{\theta})$ is the Hessian of the log-posterior (see Appendix C).
+```{r, echo=FALSE}
 Y <- as.matrix(crime_data[, -1])
 rownames(Y) <- crime_data$neighbourhood
 I <- nrow(Y)
@@ -147,9 +166,6 @@ log_posterior <- function(par, Y, sigma_alpha = 1, sigma_beta = 1) {
   logprior <- -sum(alpha^2) / (2 * sigma_alpha^2) - sum(beta^2)  / (2 * sigma_beta^2)
   loglik + logprior
 }
-```
-
-```{r}
 p <- 1 + (I - 1) + (J - 1)
 init <- rep(0, p)
 opt <- optim(par = init,
@@ -165,16 +181,9 @@ H_hat <- opt$hessian
 Sigma_hat <- solve(-H_hat)
 se_hat <- sqrt(diag(Sigma_hat))
 
+
+
 ```
-
-
-We compute the MAP estimate $\hat{\theta}$ using \texttt{optim()} and approximate the posterior as
-$$
-\theta \mid y \approx \mathcal{N}\!\left(\hat{\theta},\,(-H(\hat{\theta}))^{-1}\right),
-$$
-where $H(\hat{\theta})$ is the Hessian of the log-posterior.
-
-A plot of posterior calculated is produced by code below.
 
 ```{r}
 # posterior plot for mu under Laplace approximation
@@ -193,7 +202,6 @@ abline(v = mu_hat, lty = 2)
 ```
 
 The Laplace approximation is most accurate when the posterior is approximately Gaussian near its mode.
-
 ## Posterior Results and Interpretation
 
 We now compare the posterior results from Model 1 and Model 2 in order to answer our research questions.
@@ -221,9 +229,9 @@ Overall, Model 1 provides a simple baseline with exact posterior computation, wh
 
 ## Posterior Inference using HMC
 
-We also perform posterior inference using Hamiltonian Monte Carlo (HMC), implemented via Stan. HMC is a Markov Chain Monte Carlo method that uses gradient information of the log-posterior to propose efficient transitions, allowing for better exploration of high-dimensional parameter spaces compared to standard random-walk methods.We use the No-U-Turn Sampler (NUTS), an adaptive variant of HMC, to obtain posterior samples.The HMC samples appear to be well-behaved, with no visible issues in the posterior distribution, suggesting that the estimates are reliable.
+We also perform posterior inference using Hamiltonian Monte Carlo (HMC), implemented via Stan. HMC uses gradient information of the log-posterior to efficiently explore high-dimensional parameter spaces. Implementation details are provided in Appendix D.
 
-```{r HMC-fit, message=FALSE, warning=FALSE, results='hide'}
+```{r HMC-fit, message=FALSE, warning=FALSE, results='hide', echo=FALSE}
 stan_code <- "
 data {
   int<lower=1> I;
@@ -279,41 +287,31 @@ draws <- fit_hmc$draws("lambda", format = "matrix")
 lambda_mean_hmc <- apply(draws, 2, mean)
 lambda_lower_hmc <- apply(draws, 2, quantile, 0.025)
 lambda_upper_hmc <- apply(draws, 2, quantile, 0.975)
-```
 
-```{r HMC-results}
 hmc_results <- data.frame(
   mean = lambda_mean_hmc,
   lower = lambda_lower_hmc,
   upper = lambda_upper_hmc
 )
+```
 
+```{r}
 head(hmc_results)
 ```
 
 ```{r HMC-plot}
 df_hmc <- data.frame(
   observed = as.vector(Y),
-  predicted = lambda_mean_hmc
-)
-
+  predicted = lambda_mean_hmc)
 ggplot(df_hmc, aes(x = observed, y = predicted)) +
   geom_point(alpha = 0.7) +
   geom_abline(slope = 1, intercept = 0, linetype = 2) +
-  labs(
-    title = "HMC Posterior Means vs Observed Counts",
-    x = "Observed",
-    y = "HMC Posterior Mean"
-  )
+  labs(title = "HMC Posterior Means vs Observed Counts",x = "Observed",y = "HMC Posterior Mean")
 ```
 
 ```{r}
 mu_draws <- fit_hmc$draws("mu", format = "matrix")
-
-hist(mu_draws,
-     breaks = 30,
-     main = "Posterior of mu (HMC)",
-     xlab = "mu")
+hist(mu_draws, breaks = 30,main = "Posterior of mu (HMC)",xlab = "mu")
 ```
 
 The HMC posterior for $\mu$ is approximately symmetric and centered around $3.4$--$3.5$, which closely matches the Laplace approximation. This indicates that the posterior distribution is well-behaved and that the Gaussian approximation used in the Laplace method is reasonable in this setting.
@@ -343,8 +341,173 @@ Finally, the Laplace approximation depends on the assumption that the posterior 
 Overall, the hierarchical model combined with Bayesian inference provides a flexible and interpretable framework for understanding crime patterns and making predictions, despite the limitations in the available data.
 
 
+# Appendix
 
 
+A. Data Construction
+
+```{r}
+crime_data <- data.frame(
+  neighbourhood = c(
+    "Arbutus Ridge","Central Business District","Dunbar-Southlands","Fairview",
+    "Grandview-Woodland","Hastings-Sunrise","Kensington-Cedar Cottage",
+    "Kerrisdale","Killarney","Kitsilano","Marpole","Mount Pleasant","Musqueam",
+    "Oakridge","Renfrew-Collingwood","Riley Park","Shaughnessy","South Cambie",
+    "Stanley Park","Strathcona","Sunset","Victoria-Fraserview","West End",
+    "West Point Grey"),
+  sex_offences = c( 0,151,8,16,27,29,34,6,14,12,8,24,2,8,30,12,0,13,1,43,24,15,43,4),
+  assaults = c(18,1591,22,115,254,97,185,22,51,101,69,215,15,26,168,41,15,24,18,622,80,
+               45,306,24),
+  robbery = c( 1,218,0,9,22,7,26,3,3,10,4,36,0,0,22,3,2,2,4,64,9,9,35,2),
+  break_enter = c(25,438,24,164,121,84,127,29,37,92,89,173,0,44,123,75,32,33,12,
+                  151,77,29,149,29),
+  theft_mv = c(7,74,7,16,64,31,48,10,24,18,22,28,0,7,53,13,6,6,2,48,36,24,23,5),
+  theft_auto = c(41,1855,72,219,219,222,317,73,84,202,146,220,0,56,202,148,43,
+                 56,54,369,148,136,443,60),
+  theft_under_5k = c(69,4458,70,706,507,312,601,132,159,465,276,1015,
+                     1,115,1446,178,38,140,53,603,637,125,1120,77),
+  arson = c(1,68,1,6,15,9,8,0,1,9,1,20,0,0,8,5,0,2,2,37,4,3,10,0),
+  mischief = c(34,1864,33,209,281,140,209,45,83,142,134,296,6,29,171,86,28,42,16,434,137,
+               85,318,32),
+  offensive_weapons = c(4,708,4,28,44,9,25,5,5,10,8,39,0,1,9,2,3,4,4,244,9,10,38,3))
+
+head(crime_data)
+```
+
+B. Model 1 Posterior Computation
+
+```{r, echo=TRUE, eval=FALSE}
+alpha <- 1
+beta <- 1
+Y <- as.matrix(crime_data[, -1])
+post_shape <- alpha + Y
+post_rate  <- beta + 1
+post_mean <- post_shape / post_rate
+post_var  <- post_shape / (post_rate^2)
+
+# 95% credible intervals
+post_lower <- qgamma(0.025, shape = post_shape, rate = post_rate)
+post_upper <- qgamma(0.975, shape = post_shape, rate = post_rate)
+model1_results <- data.frame(
+  neighbourhood = rep(crime_data$neighbourhood, times = ncol(Y)),
+  crime_type = rep(colnames(Y), each = nrow(Y)),
+  observed_count = as.vector(Y),
+  post_shape = as.vector(post_shape),
+  post_rate = as.vector(post_rate),
+  posterior_mean = as.vector(post_mean),
+  posterior_variance = as.vector(post_var),
+  ci_lower = as.vector(post_lower),
+  ci_upper = as.vector(post_upper)
+)
+
+```
+
+C. Laplace Approximation Implementation
+
+
+```{r, eval=FALSE}
+Y <- as.matrix(crime_data[, -1])
+rownames(Y) <- crime_data$neighbourhood
+I <- nrow(Y)
+J <- ncol(Y)
+# par = (mu, alpha_1,...,alpha_{I-1}, beta_1,...,beta_{J-1})
+log_posterior <- function(par, Y, sigma_alpha = 1, sigma_beta = 1) {
+  mu <- par[1]
+  alpha_free <- par[2:I]
+  beta_free  <- par[(I + 1):(I + J - 1)]
+  alpha <- c(alpha_free, -sum(alpha_free))
+  beta  <- c(beta_free,  -sum(beta_free))
+  eta <- outer(alpha, beta, "+") + mu
+  loglik <- sum(Y * eta - exp(eta))
+  logprior <- -sum(alpha^2) / (2 * sigma_alpha^2) - sum(beta^2)  / (2 * sigma_beta^2)
+  loglik + logprior
+}
+```
+
+```{r, echo=TRUE, eval=FALSE}
+p <- 1 + (I - 1) + (J - 1)
+init <- rep(0, p)
+opt <- optim(par = init,
+  fn = log_posterior,
+  Y = Y,
+  sigma_alpha = 1,
+  sigma_beta = 1,
+  method = "BFGS",
+  control = list(fnscale = -1, maxit = 50000, reltol = 1e-10),
+  hessian = TRUE)
+theta_hat <- opt$par
+H_hat <- opt$hessian
+Sigma_hat <- solve(-H_hat)
+se_hat <- sqrt(diag(Sigma_hat))
+
+```
+
+D. HMC Implementation
+
+
+```{r HMC-fit-appendix, echo=TRUE, eval=FALSE}
+stan_code <- "
+data {
+  int<lower=1> I;
+  int<lower=1> J;
+  array[I,J] int<lower=0> y;
+}
+parameters {
+  real mu;
+  vector[I] alpha_raw;
+  vector[J] beta_raw;
+  real<lower=0> sigma_alpha;
+  real<lower=0> sigma_beta;
+}
+transformed parameters {
+  vector[I] alpha = sigma_alpha * alpha_raw;
+  vector[J] beta = sigma_beta * beta_raw;
+}
+model {
+  mu ~ normal(0,5);
+  alpha_raw ~ normal(0,1);
+  beta_raw ~ normal(0,1);
+  sigma_alpha ~ normal(0,2);
+  sigma_beta ~ normal(0,2);
+
+  for(i in 1:I)
+    for(j in 1:J)
+      y[i,j] ~ poisson_log(mu + alpha[i] + beta[j]);
+}
+generated quantities {
+  matrix[I,J] lambda;
+  for(i in 1:I)
+    for(j in 1:J)
+      lambda[i,j] = exp(mu + alpha[i] + beta[j]);
+}
+"
+
+writeLines(stan_code, "model_hmc.stan")
+mod <- cmdstan_model("model_hmc.stan")
+
+fit_hmc <- mod$sample(
+  data = list(
+    I = I,
+    J = J,
+    y = Y
+  ),
+  chains = 4,
+  iter_warmup = 1000,
+  iter_sampling = 1000,
+  seed = 405
+)
+draws <- fit_hmc$draws("lambda", format = "matrix")
+
+lambda_mean_hmc <- apply(draws, 2, mean)
+lambda_lower_hmc <- apply(draws, 2, quantile, 0.025)
+lambda_upper_hmc <- apply(draws, 2, quantile, 0.975)
+
+hmc_results <- data.frame(
+  mean = lambda_mean_hmc,
+  lower = lambda_lower_hmc,
+  upper = lambda_upper_hmc
+)
+```
 
 
 \begin{thebibliography}{9}
