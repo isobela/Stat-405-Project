@@ -20,6 +20,11 @@ knitr::opts_chunk$set(
 library(cmdstanr)
 library(ggplot2)
 ```
+## GitHub and Contributions
+GitHub Repo: https://github.com/isobela/Stat-405-Project
+
+This project was completed collaboratively. Isobel was responsible for implementing and analyzing the Laplace approximation, including model formulation and interpretation of results. Danial implemented the Hamiltonian Monte Carlo (HMC) method in Stan and carried out the corresponding posterior inference. Both authors contributed to writing, editing, and finalizing the report.
+To ensure 
 
 ## Data
 
@@ -27,7 +32,7 @@ We use publicly available crime data from the Vancouver Police Department, conta
 
 Since the data were provided in PDF format, we manually constructed a dataset in R. Each observation $y_{ij}$ represents the count of crime type $j$ in neighbourhood $i$.
 
-Data was ceated as an R data frame object see Appendix A
+Data was created as an R data frame object see Appendix A.
 
 ```{r, echo=FALSE}
 
